@@ -11,10 +11,7 @@ crf:
 description: 'CRF quality (lower = better, 15-23)'
 required: false
 default: '18'
-push:
-tags:
 
-'v*'
 
 permissions:
 contents: write
