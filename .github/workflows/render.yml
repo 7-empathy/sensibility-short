@@ -1,218 +1,92 @@
 name: Render Sensibility Short
 
 on:
-workflow_dispatch:
-inputs:
-composition:
-description: 'Composition ID'
-required: false
-default: 'SensibilityShort'
-crf:
-description: 'CRF quality (lower = better, 15-23)'
-required: false
-default: '18'
-
+  workflow_dispatch:
+    inputs:
+      composition:
+        description: 'Composition ID'
+        required: false
+        default: 'SensibilityShort'
+      crf:
+        description: 'CRF quality (lower = better, 15-23)'
+        required: false
+        default: '18'
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-render:
-runs-on: ubuntu-22.04
-timeout-minutes: 60
+  render:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
-steps:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-name: Checkout
-uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-name: Setup Node
-uses: actions/setup-node@v4
-with:
-node-version: '20'
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
-name: Cache node_modules
-uses: actions/cache@v4
-with:
-path: node_modules
-key: 
-r
-u
-n
-n
-e
-r
-.
-o
-s
-−
-n
-o
-d
-e
-−
-runner.os−node−{{ hashFiles('package-lock.json', 'package.json') }}
-restore-keys: |
-${{ runner.os }}-node-
+      - name: Cache Remotion Chrome
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/remotion
+          key: ${{ runner.os }}-remotion-${{ hashFiles('package-lock.json') }}
 
-name: Cache Remotion Chrome
-uses: actions/cache@v4
-with:
-path: ~/.cache/remotion
-key: 
-r
-u
-n
-n
-e
-r
-.
-o
-s
-−
-r
-e
-m
-o
-t
-i
-o
-n
-−
-runner.os−remotion−{{ hashFiles('package-lock.json') }}
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libasound2 libpango-1.0-0 libcairo2 \
+            fonts-noto-cjk ffmpeg
 
-name: Install Linux deps
-run: |
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends
-libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2
-libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2
-libgbm1 libasound2 libpango-1.0-0 libcairo2
-fonts-noto-cjk ffmpeg
+      - name: Install npm deps
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-name: Install npm deps
-run: |
-if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Render MP4
+        run: |
+          npx remotion render src/index.ts ${{ github.event.inputs.composition || 'SensibilityShort' }} \
+            out/sensibility.mp4 \
+            --codec=h264 \
+            --crf=${{ github.event.inputs.crf || '18' }} \
+            --pixel-format=yuv420p \
+            --concurrency=1 \
+            --muted \
+            --log=verbose
 
-name: Render MP4
-run: |
-npx remotion render src/index.ts 
-g
-i
-t
-h
-u
-b
-.
-e
-v
-e
-n
-t
-.
-i
-n
-p
-u
-t
-s
-.
-c
-o
-m
-p
-o
-s
-i
-t
-i
-o
-n
-∣
-∣
-′
-S
-e
-n
-s
-i
-b
-i
-l
-i
-t
-y
-S
-h
-o
-r
-t
-′
- 
-o
-u
-t
-/
-s
-e
-n
-s
-i
-b
-i
-l
-i
-t
-y
-.
-m
-p
-4
- 
-−
-−
-c
-o
-d
-e
-c
-=
-h
-264
- 
-−
-−
-c
-r
-f
-=
-github.event.inputs.composition∣∣ 
-′
- SensibilityShort 
-′
-  out/sensibility.mp4 −−codec=h264 −−crf={{ github.event.inputs.crf || '18' }}
---pixel-format=yuv420p
---concurrency=2
---muted
---log=verbose
+      - name: Verify output
+        run: |
+          ls -lh out/
+          ffprobe -v error -show_entries format=duration,size \
+            -show_entries stream=width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 out/sensibility.mp4
 
-name: Verify output
-run: |
-ls -lh out/
-ffprobe -v error -show_entries format=duration,size
--show_entries stream=width,height,r_frame_rate
--of default=noprint_wrappers=1 out/sensibility.mp4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensibility-mp4
+          path: out/sensibility.mp4
+          retention-days: 30
 
-name: Upload artifact
-uses: actions/upload-artifact@v4
-with:
-name: sensibility-mp4
-path: out/sensibility.mp4
-retention-days: 30
-
-name: Attach to Release (only on tag)
-if: startsWith(github.ref, 'refs/tags/v')
-uses: softprops/action-gh-release@v2
-with:
-files: out/sensibility.mp4
-generate_release_notes: true
+      - name: Attach to Release (only on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/sensibility.mp4
+          generate_release_notes: true
